@@ -1,0 +1,80 @@
+###############################################################################
+# .gobuilder.yml – Docker-based build with fully static binary                #
+#                                                                             #
+# This sample shows how to:                                                   #
+#   • compile a Go project that relies on CGO + musl for 100 % static output  #
+#   • install build packages inside a container (Alpine recommended)          #
+#   • embed version / commit metadata at link-time                             #
+#   • keep every artifact on the host via the bind-mount (no copy-back step)  #
+###############################################################################
+
+# Directory for build artifacts (lives **inside** the repo, so it is bind-mounted
+# automatically and appears on the host as soon as the build finishes).
+build_dir: builds
+
+# Go package / module to compile
+source: ./cmd/appserver
+output: appserver                                   # binary name (no path)
+
+###############################################################################
+# Docker settings                                                              #
+###############################################################################
+docker:
+  # Alpine + musl is the easiest way to get static CGO binaries
+  image: docker.io/golang:1.23-alpine
+
+  # workdir can be **any absolute path inside the container**.
+  # Best practice: pick a short, memorable folder such as /workspace or /src
+  # (below we choose /workspace).
+  workdir: /workspace
+
+  shell: sh                                         # interpreter for “setup”
+
+  setup:                                            # commands executed once
+    # 1) system dependencies for musl + CGO
+    - apk add --no-cache musl-dev build-base git
+    # 2) optional: show compiler/linker versions for reproducibility logs
+    - gcc -v && ld -v
+    # 3) any other project-specific preparation goes here
+
+  env:                                              # extra vars only in container
+    # Go’s module proxy disabled to force direct clone (example)
+    GOPRIVATE: github.com/acme-inc/*
+    GIT_TERMINAL_PROMPT: "0"
+
+###############################################################################
+# Global environment (applies to container AND local build modes)             #
+###############################################################################
+env:
+  # Enable CGO and point to musl toolchain for fully static output
+  CGO_ENABLED: "1"
+  CC: gcc  # In the container, this is the musl-gcc wrapper
+  # Link against libpq (PostgreSQL) statically – just an example CGO lib
+  CGO_LDFLAGS: "-L/usr/local/lib -lpq -static"
+
+###############################################################################
+# Compiler / linker flags                                                     #
+###############################################################################
+build:
+  # Plain ldflags
+  ldflags:
+    - '-linkmode external -extldflags "-static" -s -w'
+
+  # Convenient map → -X 'key=value'
+  vars:
+    main.version:   "${VERSION:-dev}"
+    main.gitCommit: "${GIT_COMMIT:-local}"
+    main.buildTime: "${BUILD_TS:-$(date +%Y-%m-%dT%H:%M:%SZ)}"
+
+  tags: ["production"]                         # custom build tag example
+  trimpath: true
+  verbose: false
+  debug:  false                                # true ⇒ dry-run (prints commands)
+
+###############################################################################
+# Build matrix – single target: Linux/amd64                                   #
+# Add more items for darwin/arm64, linux/arm64, etc.                          #
+###############################################################################
+targets:
+  - os:   linux
+    arch: amd64

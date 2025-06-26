@@ -1,0 +1,79 @@
+###############################################################################
+# Zig–powered cross-compile with go-builder                                   #
+#                                                                             #
+# ❶ Uses the official Zig image (Alpine-based) so every cross-linker is ready #
+# ❷ Keeps CGO *enabled* and points CC/CXX to `zig cc/zig c++` per target      #
+# ❸ Produces completely **static** binaries for three platforms               #
+#                                                                             #
+# USAGE                                                                       #
+#   VERSION=1.4.0 go-builder          # compile inside the container          #
+#   go-builder --dry-run --env diff   # show docker run + go build commands   #
+###############################################################################
+
+# Where artefacts go (inside the repo, already bind-mounted into the container)
+build_dir: builds
+
+# Main package
+source: ./cmd/server
+output: server
+
+###############################################################################
+# Docker — one disposable container, repo bind-mounted in /src                #
+###############################################################################
+docker:
+  image: ghcr.io/ziglang/zig:0.12.0-alpine      # Zig 0.12 + musl + all cross libs
+  workdir: /src                                 # same tree as host $PWD
+  shell: sh
+  setup:
+    - apk add --no-cache git go musl-dev build-base  # Go compiler + headers
+    - echo "Using Zig $(zig version) inside Alpine $(. /etc/os-release; echo $NAME $VERSION_ID)"
+  env:
+    # keep minimal; platform-specific vars go in targets[*].env
+    ZIG_GLOBAL_OPTS: "--verbose"
+
+###############################################################################
+# Global env shared by *every* target                                          #
+###############################################################################
+env:
+  CGO_ENABLED: "1"                       # turn on CGO so Zig handles linking
+  # NB: CC / CXX are set per target below
+
+###############################################################################
+# Generic compiler / linker flags                                              #
+###############################################################################
+build:
+  ldflags:
+    # external static link + strip + DWARF removal
+    - '-linkmode external -extldflags "-static" -s -w'
+  vars:
+    main.version: "${VERSION:-dev}"
+    main.buildTS: "${BUILD_TS:-$(date +%F)}"
+  trimpath: true
+  verbose: false
+  debug: false                            # true → print commands only
+
+###############################################################################
+# Build matrix — each entry tweaks CC/CXX for Zig’s cross toolchain           #
+###############################################################################
+targets:
+  # ── Linux x86-64 (musl) ─────────────────────────────────────────────────── #
+  - os:   linux
+    arch: amd64
+    env:
+      CC:  "zig cc -target x86_64-linux-musl"
+      CXX: "zig c++ -target x86_64-linux-musl"
+
+  # ── Linux ARM64 (musl) ──────────────────────────────────────────────────── #
+  - os:   linux
+    arch: arm64
+    env:
+      CC:  "zig cc -target aarch64-linux-musl"
+      CXX: "zig c++ -target aarch64-linux-musl"
+
+  # ── Windows x86-64 (static) ─────────────────────────────────────────────── #
+  - os:   windows
+    arch: amd64
+    env:
+      CC:  "zig cc -target x86_64-windows-gnu"
+      CXX: "zig c++ -target x86_64-windows-gnu"
+      # override GO’s default .exe handling happens automatically
