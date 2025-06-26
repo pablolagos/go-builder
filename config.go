@@ -217,3 +217,31 @@ func composeLdflags(ld StringList, vars map[string]string) string {
 	}
 	return strings.Join(out, " ")
 }
+
+/* ---------- Env helpers ---------- */
+
+// sliceToMap converts []string{"KEY=val", …} to map[string]string.
+func sliceToMap(in []string) map[string]string {
+	m := make(map[string]string, len(in))
+	for _, kv := range in {
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			m[kv[:i]] = kv[i+1:]
+		}
+	}
+	return m
+}
+
+// mergeEnvLayers overlays global and local on top of a base map.
+func mergeEnvLayers(base, global, local map[string]string) map[string]string {
+	out := make(map[string]string, len(base)+len(global)+len(local))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range global {
+		out[k] = v
+	}
+	for k, v := range local {
+		out[k] = v
+	}
+	return out
+}
