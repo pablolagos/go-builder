@@ -1,0 +1,86 @@
+###############################################################################
+# Gobuilder example configuration file                                        #
+#                                                                             #
+# Copy or generate this as `.gobuilder.yml` at the root of your project:      #
+#                                                                             #
+#     go-builder --init   # or: go-builder -i                                 #
+#                                                                             #
+# ──────────────────────────────────────────────────────────────────────────── #
+# ENV PLACEHOLDERS                                                            #
+#   ${VAR}            → replaced with the value of $VAR from the shell        #
+#   ${VAR:-default}   → replaced with $VAR if set, otherwise "default"        #
+#                                                                             #
+# CLI FLAGS                                                                   #
+#   --config FILE     Use FILE instead of .gobuilder.yml                      #
+#   --dry-run | -n    Print the go build commands but do NOT execute          #
+#   --init    | -i    Write this template to .gobuilder.yml                   #
+#                                                                             #
+# Documentation: https://github.com/pablolagos/go-builder                     #
+###############################################################################
+
+# Root directory where build artifacts will be stored
+build_dir: builds
+
+# Package or module to compile
+source: ./cmd/${MODULE_NAME:-myapp}
+
+# Base filename for each binary; final path is build_dir/GOOS/GOARCH/<output>
+output: myapp-${VERSION:-dev}
+
+# Global environment variables (apply to every target unless overridden)
+env:
+  CGO_ENABLED: "${CGO_ENABLED:-0}"
+  APP_ENV:      prod
+
+build:
+  ###########################################################################
+  # COMPILER / LINKER OPTIONS                                               #
+  ###########################################################################
+
+  # Extra linker flags passed verbatim
+  ldflags: ["-s -w"]
+
+  # Map converted to -X 'key=value' linker flags
+  vars:
+    main.version:   "${VERSION:-dev}"
+    main.commit:    "${COMMIT_SHA:-local}"
+    main.buildDate: "${BUILD_DATE:-$(date +%Y-%m-%d)}"
+
+  # Standard Go build flags
+  tags:     ["prod"]
+  gcflags:  ""              # -gcflags
+  asmflags: ""              # -asmflags
+  mod:      "readonly"      # -mod
+  race:     false           # -race
+  trimpath: true            # -trimpath
+  verbose:  false           # -v
+
+  # Dry-run without executing (can also be set via --dry-run CLI)
+  debug:    false
+
+###############################################################################
+# BUILD MATRIX — one binary per entry                                         #
+###############################################################################
+
+targets:
+
+  # ── Target 1 : Linux AMD64 ──────────────────────────────────────────────── #
+  - os: linux
+    arch: amd64
+    env:
+      GOARM: "7"           # per-target override example
+
+  # ── Target 2 : Apple Silicon ───────────────────────────────────────────── #
+  - os: darwin
+    arch: arm64
+
+  # ── Target 3 : Windows AMD64 ───────────────────────────────────────────── #
+  - os: windows
+    arch: amd64
+    env:
+      CC: x86_64-w64-mingw32-gcc
+      CGO_LDFLAGS: "-static"
+
+###############################################################################
+# END OF FILE                                                                 #
+###############################################################################
