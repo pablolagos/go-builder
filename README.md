@@ -73,20 +73,37 @@ build:
   trimpath: true
 
 targets:
-  - os: linux   ; arch: amd64
-  - os: darwin  ; arch: arm64
-  - os: windows ; arch: amd64
+  - os: linux
+    arch: amd64
+  - os: darwin
+    arch: arm64
+  - os: windows
+    arch: amd64
 ```
 
 Run `go-builder` and you’ll get:
 
 ```
-builds/linux/amd64/myapp-<ver>
-builds/darwin/arm64/myapp-<ver>
-builds/windows/amd64/myapp-<ver>.exe
+builds/linux/amd64/myapp-dev
+builds/darwin/arm64/myapp-dev
+builds/windows/amd64/myapp-dev.exe
 ```
 
-All artefacts live under `build_dir`, already ignored by Git.
+For example, to set a custom version:
+
+```bash
+VERSION=1.2.3 go-builder
+```
+
+This will produce binaries like:
+
+```
+builds/linux/amd64/myapp-1.2.3
+builds/darwin/arm64/myapp-1.2.3
+builds/windows/amd64/myapp-1.2.3.exe
+```
+
+All artifacts live under `build_dir`, already ignored by Git.
 
 ---
 
@@ -100,14 +117,9 @@ All artefacts live under `build_dir`, already ignored by Git.
 
 ---
 
-## Roadmap
+## Contributing
 
-* Parallel builds (`-j` style).
-* Templating helpers for dates, semver, git info.
-* Optional JSON summary for CI pipelines.
-* **PRs welcome** – see `CONTRIBUTING.md` soon :)
-
----
+Contributions are welcome!
 
 ## License
 
