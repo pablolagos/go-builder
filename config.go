@@ -11,11 +11,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-/* ---------- YAML data types ---------- */
+/* ──────────────── YAML data types ──────────────── */
 
+// StringList accepts scalar or sequence in YAML.
 type StringList []string
 
-// Accepts scalar or sequence in YAML.
 func (s *StringList) UnmarshalYAML(n *yaml.Node) error {
 	switch n.Kind {
 	case yaml.ScalarNode:
@@ -30,6 +30,7 @@ func (s *StringList) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
+// Target = one GOOS / GOARCH build.
 type Target struct {
 	OS     string            `yaml:"os"`
 	Arch   string            `yaml:"arch"`
@@ -37,6 +38,17 @@ type Target struct {
 	Env    map[string]string `yaml:"env,omitempty"`
 }
 
+// DockerSection controls containerised builds.
+type DockerSection struct {
+	Image    string            `yaml:"image"`
+	WorkDir  string            `yaml:"workdir"`
+	Shell    string            `yaml:"shell"`
+	Setup    []string          `yaml:"setup"`
+	Env      map[string]string `yaml:"env"`
+	CopyBack []string          `yaml:"copy_back"`
+}
+
+// Build-level flags.
 type BuildSection struct {
 	Tags     []string          `yaml:"tags"`
 	LdFlags  StringList        `yaml:"ldflags"`
@@ -50,6 +62,7 @@ type BuildSection struct {
 	Debug    bool              `yaml:"debug"`
 }
 
+// Top-level config.
 type Config struct {
 	BuildDir string            `yaml:"build_dir"`
 	Source   string            `yaml:"source"`
@@ -57,9 +70,10 @@ type Config struct {
 	Env      map[string]string `yaml:"env"`
 	Build    BuildSection      `yaml:"build"`
 	Targets  []Target          `yaml:"targets"`
+	Docker   *DockerSection    `yaml:"docker,omitempty"`
 }
 
-/* ---------- Loader ---------- */
+/* ──────────────── Load & expand ──────────────── */
 
 func LoadConfig(path string) (*Config, error) {
 	if path == "" {
@@ -79,10 +93,9 @@ func LoadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-/* ---------- Placeholder expansion ---------- */
-
+// expandEnv does ${VAR} / ${VAR:-def} replacement.
 func expandEnv(cfg *Config) *Config {
-	expand := func(s string) string {
+	exp := func(s string) string {
 		return os.Expand(s, func(k string) string {
 			if i := strings.Index(k, ":-"); i >= 0 {
 				name, def := k[:i], k[i+2:]
@@ -97,50 +110,59 @@ func expandEnv(cfg *Config) *Config {
 	dupMap := func(m map[string]string) map[string]string {
 		out := make(map[string]string, len(m))
 		for k, v := range m {
-			out[expand(k)] = expand(v)
+			out[exp(k)] = exp(v)
 		}
 		return out
 	}
 	out := *cfg
-	out.BuildDir = expand(cfg.BuildDir)
-	out.Source = expand(cfg.Source)
-	out.Output = expand(cfg.Output)
+	out.BuildDir = exp(cfg.BuildDir)
+	out.Source = exp(cfg.Source)
+	out.Output = exp(cfg.Output)
 	out.Env = dupMap(cfg.Env)
 
 	// build section
 	out.Build.LdFlags = func(in StringList) StringList {
-		out := make(StringList, len(in))
+		o := make(StringList, len(in))
 		for i, s := range in {
-			out[i] = expand(s)
+			o[i] = exp(s)
 		}
-		return out
+		return o
 	}(cfg.Build.LdFlags)
 	out.Build.Vars = dupMap(cfg.Build.Vars)
 	out.Build.Tags = func(in []string) []string {
-		out := make([]string, len(in))
+		o := make([]string, len(in))
 		for i, s := range in {
-			out[i] = expand(s)
+			o[i] = exp(s)
 		}
-		return out
+		return o
 	}(cfg.Build.Tags)
-	out.Build.GcFlags = expand(cfg.Build.GcFlags)
-	out.Build.AsmFlags = expand(cfg.Build.AsmFlags)
-	out.Build.Mod = expand(cfg.Build.Mod)
+	out.Build.GcFlags = exp(cfg.Build.GcFlags)
+	out.Build.AsmFlags = exp(cfg.Build.AsmFlags)
+	out.Build.Mod = exp(cfg.Build.Mod)
 
 	// targets
 	out.Targets = make([]Target, len(cfg.Targets))
 	for i, t := range cfg.Targets {
 		out.Targets[i] = Target{
-			OS:     expand(t.OS),
-			Arch:   expand(t.Arch),
-			Output: expand(t.Output),
+			OS:     exp(t.OS),
+			Arch:   exp(t.Arch),
+			Output: exp(t.Output),
 			Env:    dupMap(t.Env),
 		}
+	}
+	// docker env expansion
+	if cfg.Docker != nil {
+		d := *cfg.Docker
+		d.Image = exp(d.Image)
+		d.WorkDir = exp(d.WorkDir)
+		d.Shell = exp(d.Shell)
+		d.Env = dupMap(d.Env)
+		out.Docker = &d
 	}
 	return &out
 }
 
-/* ---------- Build-dir helpers ---------- */
+/* ──────────────── Build-dir helpers ──────────────── */
 
 func ensureBuildDir(dir string) error {
 	if st, err := os.Stat(dir); err == nil && st.IsDir() {
@@ -160,7 +182,8 @@ func dirIgnored(dir string) (bool, error) {
 	f, err := os.Open(".gitignore")
 	if os.IsNotExist(err) {
 		return false, nil
-	} else if err != nil {
+	}
+	if err != nil {
 		return false, err
 	}
 	defer f.Close()
@@ -175,8 +198,8 @@ func dirIgnored(dir string) (bool, error) {
 }
 
 func appendToGitignore(dir string) error {
-	ign, err := dirIgnored(dir)
-	if err != nil || ign {
+	i, err := dirIgnored(dir)
+	if err != nil || i {
 		return err
 	}
 	f, err := os.OpenFile(".gitignore", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
@@ -188,39 +211,8 @@ func appendToGitignore(dir string) error {
 	return err
 }
 
-/* ---------- Misc ---------- */
+/* ──────────────── Env helpers ──────────────── */
 
-func mergeEnvs(g, l map[string]string) map[string]string {
-	m := map[string]string{}
-	for k, v := range g {
-		m[k] = v
-	}
-	for k, v := range l {
-		m[k] = v
-	}
-	return m
-}
-
-func envSlice(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for k, v := range m {
-		out = append(out, k+"="+v)
-	}
-	return out
-}
-
-func composeLdflags(ld StringList, vars map[string]string) string {
-	out := make([]string, len(ld))
-	copy(out, ld)
-	for k, v := range vars {
-		out = append(out, fmt.Sprintf("-X '%s=%s'", k, v))
-	}
-	return strings.Join(out, " ")
-}
-
-/* ---------- Env helpers ---------- */
-
-// sliceToMap converts []string{"KEY=val", …} to map[string]string.
 func sliceToMap(in []string) map[string]string {
 	m := make(map[string]string, len(in))
 	for _, kv := range in {
@@ -231,7 +223,7 @@ func sliceToMap(in []string) map[string]string {
 	return m
 }
 
-// mergeEnvLayers overlays global and local on top of a base map.
+// mergeEnvLayers: base <- global <- local
 func mergeEnvLayers(base, global, local map[string]string) map[string]string {
 	out := make(map[string]string, len(base)+len(global)+len(local))
 	for k, v := range base {
@@ -246,7 +238,15 @@ func mergeEnvLayers(base, global, local map[string]string) map[string]string {
 	return out
 }
 
-// diffEnv returns map of keys whose value in 'cur' differs from 'base'.
+func envSlice(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k, v := range m {
+		out = append(out, k+"="+v)
+	}
+	return out
+}
+
+// diffEnv returns keys that differ between base and cur.
 func diffEnv(base, cur map[string]string) map[string]string {
 	out := map[string]string{}
 	for k, v := range cur {
@@ -255,4 +255,13 @@ func diffEnv(base, cur map[string]string) map[string]string {
 		}
 	}
 	return out
+}
+
+func composeLdflags(ld StringList, vars map[string]string) string {
+	out := make([]string, len(ld))
+	copy(out, ld)
+	for k, v := range vars {
+		out = append(out, fmt.Sprintf("-X '%s=%s'", k, v))
+	}
+	return strings.Join(out, " ")
 }

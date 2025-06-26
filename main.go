@@ -1,8 +1,3 @@
-// main.go
-//
-// Entry point for go-builder. Handles CLI flags, YAML loading, build-dir checks,
-// environment composition and “go build” invocation (with optional dry-run).
-
 package main
 
 import (
@@ -19,41 +14,35 @@ import (
 	"time"
 )
 
-/* ───────────────────────────────── embed template ───────────────────────── */
+/* ──────────── embed example template ─────────── */
 
 //go:embed example/example.yml
 var exampleYAML string
 
-/* ───────────────────────────────── CLI flags ────────────────────────────── */
+/* ──────────── CLI flags ─────────── */
 
 var (
-	cfgPath = flag.String("config", ".gobuilder.yml",
-		"Path to YAML config file (default .gobuilder.yml)")
-	initCfg = flag.Bool("init", false,
-		"Create a sample .gobuilder.yml and exit (alias -i)")
-	dryRun = flag.Bool("dry-run", false,
-		"Print commands but do not execute (alias -n)")
-	force = flag.Bool("force", false,
-		"Overwrite existing file in --init mode without asking (alias -f)")
-	envMode = flag.String("env", "diff",
-		`Which env vars to show in --dry-run:
-     diff  - only vars added/changed by go-builder (default)
-     all   - full environment
-     none  - do not print env section`)
+	cfgPath    = flag.String("config", ".gobuilder.yml", "Config file (default .gobuilder.yml)")
+	initCfg    = flag.Bool("init", false, "Write .gobuilder.yml template (alias -i)")
+	force      = flag.Bool("force", false, "Overwrite existing file without asking (alias -f)")
+	dryRun     = flag.Bool("dry-run", false, "Print commands, do not execute (alias -n)")
+	envMode    = flag.String("env", "diff", "Env print mode in dry-run: diff | all | none")
+	skipDocker = flag.Bool("skip-docker", false, "Ignore docker section (alias -D)")
 )
 
 func init() {
 	flag.BoolVar(initCfg, "i", false, "Alias for --init")
-	flag.BoolVar(dryRun, "n", false, "Alias for --dry-run")
 	flag.BoolVar(force, "f", false, "Alias for --force")
+	flag.BoolVar(dryRun, "n", false, "Alias for --dry-run")
+	flag.BoolVar(skipDocker, "D", false, "Alias for --skip-docker")
 }
 
-/* ────────────────────────────────── main ────────────────────────────────── */
+/* ──────────── main ─────────── */
 
 func main() {
 	flag.Parse()
 
-	/* ---------- --init mode ---------------------------------------------- */
+	/* --init ------------------------------------------------------------ */
 	if *initCfg {
 		if err := createExampleConfig(".gobuilder.yml", *force); err != nil {
 			log.Fatalf("go-builder: %v", err)
@@ -62,32 +51,41 @@ func main() {
 		return
 	}
 
-	/* ---------- load YAML ------------------------------------------------ */
+	/* load & expand ----------------------------------------------------- */
 	cfg, err := LoadConfig(*cfgPath)
 	if err != nil {
 		log.Fatalf("go-builder: %v", err)
 	}
-	cfg = expandEnv(cfg) // placeholder expansion
+	cfg = expandEnv(cfg)
 	if cfg.Build.Debug {
-		*dryRun = true // YAML can enable dry-run
+		*dryRun = true
 	}
 
-	/* ---------- build directory check ----------------------------------- */
+	/* docker mode ------------------------------------------------------- */
+	if cfg.Docker != nil && !*skipDocker {
+		inner := append([]string{}, cfg.Docker.Setup...)
+		inner = append(inner, "go install github.com/pablolagos/go-builder@latest")
+		inner = append(inner, "go-builder --skip-docker --config=.gobuilder.yml")
+		if err := dockerRun(cfg, inner, *dryRun); err != nil {
+			log.Fatalf("go-builder: %v", err)
+		}
+		// Copy-back not implemented for --rm containers (stub in dockerutil.go).
+		return
+	}
+
+	/* local build path -------------------------------------------------- */
 	if err := ensureBuildDir(cfg.BuildDir); err != nil {
 		log.Fatalf("go-builder: %v", err)
 	}
+	baseEnv := sliceToMap(os.Environ())
 
-	/* ---------- prepare base environment -------------------------------- */
-	baseEnv := sliceToMap(os.Environ()) // keep PATH, GOPATH, HOME, …
-
-	/* ---------- single-build branch (no matrix) ------------------------- */
-	base := cfg.Output
-	if base == "" {
-		base = filepath.Base(cfg.Source)
+	baseName := cfg.Output
+	if baseName == "" {
+		baseName = filepath.Base(cfg.Source)
 	}
 
 	if len(cfg.Targets) == 0 {
-		out := filepath.Join(cfg.BuildDir, runtime.GOOS, runtime.GOARCH, base)
+		out := filepath.Join(cfg.BuildDir, runtime.GOOS, runtime.GOARCH, baseName)
 		if runtime.GOOS == "windows" && !strings.HasSuffix(out, ".exe") {
 			out += ".exe"
 		}
@@ -98,32 +96,29 @@ func main() {
 		return
 	}
 
-	/* ---------- matrix build ------------------------------------------- */
 	for _, t := range cfg.Targets {
-		envMap := mergeEnvLayers(baseEnv, cfg.Env, t.Env)
-		envMap["GOOS"], envMap["GOARCH"] = t.OS, t.Arch
-
+		env := mergeEnvLayers(baseEnv, cfg.Env, t.Env)
+		env["GOOS"], env["GOARCH"] = t.OS, t.Arch
 		out := t.Output
 		if out == "" {
-			out = filepath.Join(cfg.BuildDir, t.OS, t.Arch, base)
+			out = filepath.Join(cfg.BuildDir, t.OS, t.Arch, baseName)
 			if t.OS == "windows" && !strings.HasSuffix(out, ".exe") {
 				out += ".exe"
 			}
 		}
 		fmt.Printf(">>> Building %s/%s → %s\n", t.OS, t.Arch, out)
-		if err := runBuild(cfg, baseEnv, envSlice(envMap), out, *dryRun); err != nil {
+		if err := runBuild(cfg, baseEnv, envSlice(env), out, *dryRun); err != nil {
 			log.Fatalf("go-builder: %v", err)
 		}
 	}
 }
 
-/* ─────────────────────────── build executor ────────────────────────────── */
+/* ──────────── build executor ─────────── */
 
-// runBuild assembles flags, executes “go build”, or prints them in dry-run mode.
-func runBuild(cfg *Config, base map[string]string, env []string, output string, dry bool) error {
+func runBuild(cfg *Config, base map[string]string, env []string,
+	output string, dry bool) error {
+
 	args := []string{"build"}
-
-	// generic flags
 	if cfg.Build.Verbose {
 		args = append(args, "-v")
 	}
@@ -146,7 +141,6 @@ func runBuild(cfg *Config, base map[string]string, env []string, output string, 
 		args = append(args, "-race")
 	}
 
-	// ldflags & output
 	if lf := composeLdflags(cfg.Build.LdFlags, cfg.Build.Vars); lf != "" {
 		args = append(args, "-ldflags", lf)
 	}
@@ -155,36 +149,34 @@ func runBuild(cfg *Config, base map[string]string, env []string, output string, 
 	}
 	args = append(args, cfg.Source)
 
-	/* ----- dry-run ------------------------------------------------------ */
+	/* dry-run ----------------------------------------------------------- */
 	if dry {
-		// Decide which env vars to show
-		var toShow map[string]string
+		cur := sliceToMap(env)
+		var show map[string]string
 		switch *envMode {
 		case "none":
-			toShow = nil
+			show = nil
 		case "all":
-			toShow = sliceToMap(env) // cur env as map
-		default: // "diff"
-			toShow = diffEnv(base, sliceToMap(env))
+			show = cur
+		default: // diff
+			show = diffEnv(base, cur)
 		}
-
 		fmt.Println("\n# Dry-run:")
-		if toShow != nil {
-			// PWD y similares quedan fuera para no ensuciar
-			keys := make([]string, 0, len(toShow))
-			for k := range toShow {
+		if show != nil {
+			keys := make([]string, 0, len(show))
+			for k := range show {
 				keys = append(keys, k)
 			}
 			sort.Strings(keys)
 			for _, k := range keys {
-				fmt.Printf("%s=%q \\\n", k, toShow[k])
+				fmt.Printf("%s=%q \\\n", k, show[k])
 			}
 		}
 		fmt.Printf("go %s\n\n", strings.Join(args, " "))
 		return nil
 	}
 
-	/* ----- real execution ---------------------------------------------- */
+	/* real build -------------------------------------------------------- */
 	start := time.Now()
 	cmd := exec.Command("go", args...)
 	cmd.Env = env
@@ -192,16 +184,15 @@ func runBuild(cfg *Config, base map[string]string, env []string, output string, 
 	if err := cmd.Run(); err != nil {
 		return err
 	}
-	fmt.Printf("✔ Completed in %s\n", time.Since(start).Round(time.Millisecond))
+	fmt.Printf("✔ completed in %s\n", time.Since(start).Round(time.Millisecond))
 	return nil
 }
 
-/* ─────────────────────── --init write helper ───────────────────────────── */
+/* ──────────── init template helper ─────────── */
 
-// createExampleConfig writes the embedded template, asking before overwrite unless forced.
 func createExampleConfig(path string, overwrite bool) error {
 	if _, err := os.Stat(path); err == nil && !overwrite {
-		fmt.Printf("%s already exists — overwrite? [y/N]: ", path)
+		fmt.Printf("%s exists — overwrite? [y/N]: ", path)
 		var ans string
 		fmt.Scanln(&ans)
 		ans = strings.ToLower(strings.TrimSpace(ans))
