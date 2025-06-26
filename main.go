@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -34,6 +35,11 @@ var (
 		"Print commands but do not execute (alias -n)")
 	force = flag.Bool("force", false,
 		"Overwrite existing file in --init mode without asking (alias -f)")
+	envMode = flag.String("env", "diff",
+		`Which env vars to show in --dry-run:
+     diff  - only vars added/changed by go-builder (default)
+     all   - full environment
+     none  - do not print env section`)
 )
 
 func init() {
@@ -86,7 +92,7 @@ func main() {
 			out += ".exe"
 		}
 		env := mergeEnvLayers(baseEnv, cfg.Env, nil)
-		if err := runBuild(cfg, envSlice(env), out, *dryRun); err != nil {
+		if err := runBuild(cfg, baseEnv, envSlice(env), out, *dryRun); err != nil {
 			log.Fatalf("go-builder: %v", err)
 		}
 		return
@@ -105,7 +111,7 @@ func main() {
 			}
 		}
 		fmt.Printf(">>> Building %s/%s → %s\n", t.OS, t.Arch, out)
-		if err := runBuild(cfg, envSlice(envMap), out, *dryRun); err != nil {
+		if err := runBuild(cfg, baseEnv, envSlice(envMap), out, *dryRun); err != nil {
 			log.Fatalf("go-builder: %v", err)
 		}
 	}
@@ -114,7 +120,7 @@ func main() {
 /* ─────────────────────────── build executor ────────────────────────────── */
 
 // runBuild assembles flags, executes “go build”, or prints them in dry-run mode.
-func runBuild(cfg *Config, env []string, output string, dry bool) error {
+func runBuild(cfg *Config, base map[string]string, env []string, output string, dry bool) error {
 	args := []string{"build"}
 
 	// generic flags
@@ -151,12 +157,28 @@ func runBuild(cfg *Config, env []string, output string, dry bool) error {
 
 	/* ----- dry-run ------------------------------------------------------ */
 	if dry {
+		// Decide which env vars to show
+		var toShow map[string]string
+		switch *envMode {
+		case "none":
+			toShow = nil
+		case "all":
+			toShow = sliceToMap(env) // cur env as map
+		default: // "diff"
+			toShow = diffEnv(base, sliceToMap(env))
+		}
+
 		fmt.Println("\n# Dry-run:")
-		for _, kv := range env {
-			if strings.HasPrefix(kv, "PWD=") {
-				continue // noise
+		if toShow != nil {
+			// PWD y similares quedan fuera para no ensuciar
+			keys := make([]string, 0, len(toShow))
+			for k := range toShow {
+				keys = append(keys, k)
 			}
-			fmt.Printf("%s \\\n", kv)
+			sort.Strings(keys)
+			for _, k := range keys {
+				fmt.Printf("%s=%q \\\n", k, toShow[k])
+			}
 		}
 		fmt.Printf("go %s\n\n", strings.Join(args, " "))
 		return nil

@@ -38,6 +38,13 @@ build:
   ###########################################################################
 
   # Extra linker flags passed verbatim
+  # Can be included as a list of strings or a single string
+  # ldflags: ["-s -w"]
+  # ldflags: ["-s", "-w"]
+  # or as a sequence of strings:
+  # ldflags:
+    #   - "-s"
+    #   - "-w"
   ldflags: ["-s -w"]
 
   # Map converted to -X 'key=value' linker flags
@@ -47,7 +54,7 @@ build:
     main.buildDate: "${BUILD_DATE:-$(date +%Y-%m-%d)}"
 
   # Standard Go build flags
-  tags:     ["prod"]
+  tags:     ["prod"]        # List of build tags, e.g. ["prod", "release"]
   gcflags:  ""              # -gcflags
   asmflags: ""              # -asmflags
   mod:      "mod"           # -mod - Possible values: "mod", "vendor", "readonly", "readonly+vendor", default is "mod"

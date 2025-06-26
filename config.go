@@ -245,3 +245,14 @@ func mergeEnvLayers(base, global, local map[string]string) map[string]string {
 	}
 	return out
 }
+
+// diffEnv returns map of keys whose value in 'cur' differs from 'base'.
+func diffEnv(base, cur map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range cur {
+		if base[k] != v {
+			out[k] = v
+		}
+	}
+	return out
+}
