@@ -11,17 +11,17 @@ It turns a single YAML file into repeatable, documented `go build` commands—wi
 
 ## Features
 
-| ✓ | What it does |
-|---|--------------|
-| **Declarative YAML** (`.gobuilder.yml`) with full inline docs. |
-| **Build matrix** – generate binaries for any `GOOS/GOARCH` set. |
-| **Link-time vars** – map → `-X 'name=value'`. |
-| **Placeholder expansion** – `${VAR}` / `${VAR:-default}` everywhere. |
-| **Per-target & global env** – `CC`, `CGO_LDFLAGS`, etc. |
-| **Auto build directory** (default `builds/`) & automatic `.gitignore` handling. |
-| **Dry-run** (`--dry-run` or `build.debug:true`) to print commands only. |
-| **Init template** (`--init`) writes a richly commented sample YAML. |
-| **No Git assumptions** – use any branch, tag or detached HEAD. |
+| ✓                           | What it does                                                |
+|-----------------------------|-------------------------------------------------------------|
+| **Declarative YAML**        | (`.gobuilder.yml`) with full inline docs.                   |
+| **Build matrix**            | generate binaries for any `GOOS/GOARCH` set.                |
+| **Link-time vars**          | map → `-X 'name=value'`.                                    |
+| **Placeholder expansion**   | `${VAR}` / `${VAR:-default}` everywhere.                    |
+| **Per-target & global env** | `CC`, `CGO_LDFLAGS`, etc.                                   |
+| **Auto build directory**    | (default `builds/`) & automatic `.gitignore` handling.      |
+| **Dry-run**                 | (`--dry-run` or `build.debug:true`) to print commands only. |
+| **Init template**           | (`--init`) writes a richly commented sample YAML.           |
+| **No Git assumptions**      | use any branch, tag or detached HEAD.                       |
 
 ---
 
@@ -114,10 +114,6 @@ All artifacts live under `build_dir`, already ignored by Git.
 | `--config FILE` | Use FILE instead of `.gobuilder.yml`.               |
 | `--dry-run, -n` | Print `go build …` commands but don’t execute.      |
 | `--init, -i`    | Create `.gobuilder.yml` from the embedded template. |
-| `--env MODE`    | Specify which environment variables to show in `--dry-run`. Options are:    |
-|                 | - `diff`: Show only the variables added/changed by `go-builder` (default). |
-|                 | - `all`: Show the complete environment.             |
-|                 | - `none`: Do not show the environment section.      |
 
 ---
 
@@ -128,3 +124,5 @@ Contributions are welcome!
 ## License
 
 MIT © 2025 Pablo Lagos
+
+```
