@@ -27,11 +27,14 @@ var (
 		"Create a sample .gobuilder.yml and exit (alias -i)")
 	dryRun = flag.Bool("dry-run", false,
 		"Print commands but do not execute (alias -n)")
+	force = flag.Bool("force", false,
+		"Overwrite existing file in --init mode without asking (alias -f)")
 )
 
 func init() {
 	flag.BoolVar(initCfg, "i", false, "Alias for --init")
 	flag.BoolVar(dryRun, "n", false, "Alias for --dry-run")
+	flag.BoolVar(force, "f", false, "Alias for --force")
 }
 
 /* ---------- main ---------- */
@@ -41,10 +44,10 @@ func main() {
 
 	/* --init ------------------------------------------------------------ */
 	if *initCfg {
-		if err := createExampleConfig(".gobuilder.yml"); err != nil {
+		if err := createExampleConfig(".gobuilder.yml", *force); err != nil {
 			log.Fatalf("go-builder: %v", err)
 		}
-		fmt.Println(".gobuilder.yml created — edit it to suit your project.")
+		fmt.Println(".gobuilder.yml written.")
 		return
 	}
 
@@ -155,9 +158,18 @@ func runBuild(cfg *Config, env []string, output string, dry bool) error {
 
 /* ---------- --init helper ---------- */
 
-func createExampleConfig(path string) error {
-	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("%s already exists", path)
+// createExampleConfig writes the template, optionally asking before overwrite.
+func createExampleConfig(path string, overwrite bool) error {
+	if _, err := os.Stat(path); err == nil { // exists
+		if !overwrite {
+			fmt.Printf("%s already exists – overwrite? [y/N]: ", path)
+			var ans string
+			fmt.Scanln(&ans)
+			ans = strings.ToLower(strings.TrimSpace(ans))
+			if ans != "y" && ans != "yes" {
+				return fmt.Errorf("aborted by user")
+			}
+		}
 	}
 	return os.WriteFile(path, []byte(exampleYAML), 0o644)
 }
