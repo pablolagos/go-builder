@@ -125,4 +125,3 @@ Contributions are welcome!
 
 MIT © 2025 Pablo Lagos
 
-```
