@@ -29,7 +29,7 @@ output: myapp-${VERSION:-dev}
 
 # Global environment variables (apply to every target unless overridden)
 env:
-  CGO_ENABLED: "${CGO_ENABLED:-0}"
+  CGO_ENABLED: "${CGO_ENABLED:-0}" # Enable CGO (0 = disabled, 1 = enabled) 0 produces static binaries
   APP_ENV:      prod
 
 build:
@@ -50,9 +50,9 @@ build:
   tags:     ["prod"]
   gcflags:  ""              # -gcflags
   asmflags: ""              # -asmflags
-  mod:      "readonly"      # -mod
+  mod:      "mod"           # -mod - Possible values: "mod", "vendor", "readonly", "readonly+vendor", default is "mod"
   race:     false           # -race
-  trimpath: true            # -trimpath
+  trimpath: true            # -trimpath - removes file system paths from the compiled binary
   verbose:  false           # -v
 
   # Dry-run without executing (can also be set via --dry-run CLI)
