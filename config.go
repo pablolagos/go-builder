@@ -40,12 +40,11 @@ type Target struct {
 
 // DockerSection controls containerised builds.
 type DockerSection struct {
-	Image    string            `yaml:"image"`
-	WorkDir  string            `yaml:"workdir"`
-	Shell    string            `yaml:"shell"`
-	Setup    []string          `yaml:"setup"`
-	Env      map[string]string `yaml:"env"`
-	CopyBack []string          `yaml:"copy_back"`
+	Image   string            `yaml:"image"`
+	WorkDir string            `yaml:"workdir"`
+	Shell   string            `yaml:"shell"`
+	Setup   []string          `yaml:"setup"`
+	Env     map[string]string `yaml:"env"`
 }
 
 // Build-level flags.

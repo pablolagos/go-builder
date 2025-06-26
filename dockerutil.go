@@ -49,7 +49,3 @@ func dockerRun(cfg *Config, cmds []string, dry bool) error {
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
 }
-
-// dockerCopyBack would copy paths from container to host (stub here).
-// For brevity, copy-back is not implemented with --rm containers.
-func dockerCopyBack(_ string, _ []string, _ string, _ bool) error { return nil }
