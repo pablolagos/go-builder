@@ -1,4 +1,17 @@
 # 🧱 go-builder — Declarative Go builds made simple
+<p align="left">
+
+<!-- Go report -->
+<a href="https://goreportcard.com/report/github.com/pablolagos/go-builder">
+  <img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/pablolagos/go-builder">
+</a>
+
+<!-- License -->
+<a href="LICENSE">
+  <img alt="License" src="https://img.shields.io/github/license/pablolagos/go-builder?color=blue">
+</a>
+
+</p>
 
 > Because `go build` shouldn't turn into a puzzle.
 
