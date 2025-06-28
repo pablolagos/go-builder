@@ -16,7 +16,7 @@ import (
 
 /* ──────────── embed example template ─────────── */
 
-//go:embed example/example.yml
+//go:embed examples/example.yml
 var exampleYAML string
 
 /* ──────────── CLI flags ─────────── */
