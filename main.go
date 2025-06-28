@@ -1,6 +1,15 @@
+// main.go
+//
+// go-builder entry-point.
+// • CLI flags (--init, --dry-run, --env, --skip-docker, --force)
+// • Docker-aware build path
+// • Environment diff printing in dry-run
+// • Optional “verify_static” check per-target or global
+
 package main
 
 import (
+	"bytes"
 	_ "embed"
 	"flag"
 	"fmt"
@@ -14,20 +23,18 @@ import (
 	"time"
 )
 
-/* ──────────── embed example template ─────────── */
-
+/*──────────────────────── embed template ───────────────────────*/
 //go:embed examples/example.yml
 var exampleYAML string
 
-/* ──────────── CLI flags ─────────── */
-
+/*──────────────────────── CLI flags ───────────────────────────*/
 var (
-	cfgPath    = flag.String("config", ".gobuilder.yml", "Config file (default .gobuilder.yml)")
-	initCfg    = flag.Bool("init", false, "Write .gobuilder.yml template (alias -i)")
-	force      = flag.Bool("force", false, "Overwrite existing file without asking (alias -f)")
-	dryRun     = flag.Bool("dry-run", false, "Print commands, do not execute (alias -n)")
-	envMode    = flag.String("env", "diff", "Env print mode in dry-run: diff | all | none")
-	skipDocker = flag.Bool("skip-docker", false, "Ignore docker section (alias -D)")
+	cfgPath    = flag.String("config", ".gobuilder.yml", "Config file")
+	initCfg    = flag.Bool("init", false, "Write template and exit (-i)")
+	force      = flag.Bool("force", false, "Overwrite template (-f)")
+	dryRun     = flag.Bool("dry-run", false, "Print commands only (-n)")
+	envMode    = flag.String("env", "diff", "Env output: diff | all | none")
+	skipDocker = flag.Bool("skip-docker", false, "Ignore docker section (-D)")
 )
 
 func init() {
@@ -37,12 +44,11 @@ func init() {
 	flag.BoolVar(skipDocker, "D", false, "Alias for --skip-docker")
 }
 
-/* ──────────── main ─────────── */
-
+/*──────────────────────── main ───────────────────────────────*/
 func main() {
 	flag.Parse()
 
-	/* --init ------------------------------------------------------------ */
+	/* template generation */
 	if *initCfg {
 		if err := createExampleConfig(".gobuilder.yml", *force); err != nil {
 			log.Fatalf("go-builder: %v", err)
@@ -51,7 +57,7 @@ func main() {
 		return
 	}
 
-	/* load & expand ----------------------------------------------------- */
+	/* load config */
 	cfg, err := LoadConfig(*cfgPath)
 	if err != nil {
 		log.Fatalf("go-builder: %v", err)
@@ -61,7 +67,7 @@ func main() {
 		*dryRun = true
 	}
 
-	/* docker mode ------------------------------------------------------- */
+	/* docker path */
 	if cfg.Docker != nil && !*skipDocker {
 		inner := append([]string{}, cfg.Docker.Setup...)
 		inner = append(inner, "go install github.com/pablolagos/go-builder@latest")
@@ -69,11 +75,10 @@ func main() {
 		if err := dockerRun(cfg, inner, *dryRun); err != nil {
 			log.Fatalf("go-builder: %v", err)
 		}
-		// Copy-back not implemented for --rm containers (stub in dockerutil.go).
 		return
 	}
 
-	/* local build path -------------------------------------------------- */
+	/* local build path */
 	if err := ensureBuildDir(cfg.BuildDir); err != nil {
 		log.Fatalf("go-builder: %v", err)
 	}
@@ -84,15 +89,24 @@ func main() {
 		baseName = filepath.Base(cfg.Source)
 	}
 
-	if len(cfg.Targets) == 0 {
+	runSingle := func(env map[string]string, out string, wantStatic bool) {
+		if err := runBuild(cfg, baseEnv, envSlice(env), out, *dryRun); err != nil {
+			log.Fatalf("go-builder: %v", err)
+		}
+		if wantStatic {
+			if err := assertStatic(out, *dryRun); err != nil {
+				log.Fatalf("go-builder: %v", err)
+			}
+		}
+	}
+
+	if len(cfg.Targets) == 0 { /* host build */
 		out := filepath.Join(cfg.BuildDir, runtime.GOOS, runtime.GOARCH, baseName)
 		if runtime.GOOS == "windows" && !strings.HasSuffix(out, ".exe") {
 			out += ".exe"
 		}
 		env := mergeEnvLayers(baseEnv, cfg.Env, nil)
-		if err := runBuild(cfg, baseEnv, envSlice(env), out, *dryRun); err != nil {
-			log.Fatalf("go-builder: %v", err)
-		}
+		runSingle(env, out, cfg.Build.VerifyStatic)
 		return
 	}
 
@@ -107,17 +121,18 @@ func main() {
 			}
 		}
 		fmt.Printf(">>> Building %s/%s → %s\n", t.OS, t.Arch, out)
-		if err := runBuild(cfg, baseEnv, envSlice(env), out, *dryRun); err != nil {
-			log.Fatalf("go-builder: %v", err)
+
+		wantStatic := cfg.Build.VerifyStatic
+		if t.VerifyStatic != nil {
+			wantStatic = *t.VerifyStatic
 		}
+
+		runSingle(env, out, wantStatic)
 	}
 }
 
-/* ──────────── build executor ─────────── */
-
-func runBuild(cfg *Config, base map[string]string, env []string,
-	output string, dry bool) error {
-
+/*──────────────────────── build executor ─────────────────────*/
+func runBuild(cfg *Config, base map[string]string, env []string, out string, dry bool) error {
 	args := []string{"build"}
 	if cfg.Build.Verbose {
 		args = append(args, "-v")
@@ -140,16 +155,14 @@ func runBuild(cfg *Config, base map[string]string, env []string,
 	if cfg.Build.Race {
 		args = append(args, "-race")
 	}
-
 	if lf := composeLdflags(cfg.Build.LdFlags, cfg.Build.Vars); lf != "" {
 		args = append(args, "-ldflags", lf)
 	}
-	if output != "" {
-		args = append(args, "-o", output)
+	if out != "" {
+		args = append(args, "-o", out)
 	}
 	args = append(args, cfg.Source)
 
-	/* dry-run ----------------------------------------------------------- */
 	if dry {
 		cur := sliceToMap(env)
 		var show map[string]string
@@ -158,7 +171,7 @@ func runBuild(cfg *Config, base map[string]string, env []string,
 			show = nil
 		case "all":
 			show = cur
-		default: // diff
+		default:
 			show = diffEnv(base, cur)
 		}
 		fmt.Println("\n# Dry-run:")
@@ -176,7 +189,6 @@ func runBuild(cfg *Config, base map[string]string, env []string,
 		return nil
 	}
 
-	/* real build -------------------------------------------------------- */
 	start := time.Now()
 	cmd := exec.Command("go", args...)
 	cmd.Env = env
@@ -188,8 +200,23 @@ func runBuild(cfg *Config, base map[string]string, env []string,
 	return nil
 }
 
-/* ──────────── init template helper ─────────── */
+/*──────────────────────── static checker ─────────────────────*/
+func assertStatic(path string, dry bool) error {
+	if dry {
+		fmt.Printf("# Dry-run: verifying %s is static\n", path)
+		return nil
+	}
+	out, err := exec.Command("file", "-L", path).Output()
+	if err != nil {
+		return fmt.Errorf("file check failed: %w", err)
+	}
+	if !bytes.Contains(out, []byte("statically linked")) {
+		return fmt.Errorf("%s is NOT statically linked", path)
+	}
+	return nil
+}
 
+/*──────────────────────── template helper ───────────────────*/
 func createExampleConfig(path string, overwrite bool) error {
 	if _, err := os.Stat(path); err == nil && !overwrite {
 		fmt.Printf("%s exists — overwrite? [y/N]: ", path)

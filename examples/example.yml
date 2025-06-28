@@ -65,6 +65,8 @@ build:
   # Dry-run without executing (can also be set via --dry-run CLI)
   debug:    false
 
+  verify_static: false  # Verify that the binary is statically linked (CGO_ENABLED=0) globally or per target
+
 ###############################################################################
 # BUILD MATRIX — one binary per entry                                         #
 ###############################################################################
@@ -74,6 +76,7 @@ targets:
   # ── Target 1 : Linux AMD64 ──────────────────────────────────────────────── #
   - os: linux
     arch: amd64
+    verify_static: true  # Verify static linking for linux
     env:
       GOARM: "7"           # per-target override example
 

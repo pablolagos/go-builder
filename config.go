@@ -32,10 +32,11 @@ func (s *StringList) UnmarshalYAML(n *yaml.Node) error {
 
 // Target = one GOOS / GOARCH build.
 type Target struct {
-	OS     string            `yaml:"os"`
-	Arch   string            `yaml:"arch"`
-	Output string            `yaml:"output"`
-	Env    map[string]string `yaml:"env,omitempty"`
+	OS           string            `yaml:"os"`
+	Arch         string            `yaml:"arch"`
+	Output       string            `yaml:"output"`
+	Env          map[string]string `yaml:"env,omitempty"`
+	VerifyStatic *bool             `yaml:"verify_static,omitempty"` // override per-target
 }
 
 // DockerSection controls containerised builds.
@@ -49,16 +50,17 @@ type DockerSection struct {
 
 // Build-level flags.
 type BuildSection struct {
-	Tags     []string          `yaml:"tags"`
-	LdFlags  StringList        `yaml:"ldflags"`
-	Vars     map[string]string `yaml:"vars"`
-	GcFlags  string            `yaml:"gcflags"`
-	AsmFlags string            `yaml:"asmflags"`
-	Mod      string            `yaml:"mod"`
-	Race     bool              `yaml:"race"`
-	TrimPath bool              `yaml:"trimpath"`
-	Verbose  bool              `yaml:"verbose"`
-	Debug    bool              `yaml:"debug"`
+	Tags         []string          `yaml:"tags"`
+	LdFlags      StringList        `yaml:"ldflags"`
+	Vars         map[string]string `yaml:"vars"`
+	GcFlags      string            `yaml:"gcflags"`
+	AsmFlags     string            `yaml:"asmflags"`
+	Mod          string            `yaml:"mod"`
+	Race         bool              `yaml:"race"`
+	TrimPath     bool              `yaml:"trimpath"`
+	Verbose      bool              `yaml:"verbose"`
+	Debug        bool              `yaml:"debug"`
+	VerifyStatic bool              `yaml:"verify_static"`
 }
 
 // Top-level config.
@@ -263,4 +265,12 @@ func composeLdflags(ld StringList, vars map[string]string) string {
 		out = append(out, fmt.Sprintf("-X '%s=%s'", k, v))
 	}
 	return strings.Join(out, " ")
+}
+
+// wantStatic returns true if the target wants static linking.
+func (t Target) wantStatic(global bool) bool {
+	if t.VerifyStatic != nil {
+		return *t.VerifyStatic
+	}
+	return global
 }
