@@ -204,6 +204,7 @@ Need a different file? Use `--config path/to/file.yml`.
 | **No Git assumptions**      | use any branch, tag or detached HEAD.                       |
 | **Docker builds**            | run builds in a Docker container with custom setup.         |
 | **Cross-compilation**         | compile for any `GOOS/GOARCH` target.                        |
+| **Static linking verification** | verify binaries are statically linked using `file` command.  |
 
 
 
@@ -224,10 +225,12 @@ build:
     main.commit:  "${COMMIT_SHA:-local}"
   tags: ["prod"]
   trimpath: true
+  verify_static: false  # Verify that the binary is statically linked (uses 'file' command)
 
 targets:
   - os: linux
     arch: amd64
+    verify_static: true  # Override global setting for this target only
   - os: darwin
     arch: arm64
   - os: windows
@@ -277,4 +280,3 @@ Contributions are welcome!
 ## License
 
 MIT © 2025 Pablo Lagos
-
